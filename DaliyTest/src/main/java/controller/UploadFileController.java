@@ -1,0 +1,104 @@
+package controller;
+
+import Utils.FileUtil;
+import common.Result;
+import common.ResultGenerator;
+import org.springframework.stereotype.Controller;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseBody;
+import org.springframework.web.multipart.MultipartFile;
+import sun.misc.Request;
+
+import javax.servlet.http.HttpServletRequest;
+import java.io.File;
+import java.io.IOException;
+
+/**
+ * @author hongcq
+ * @Description TODO
+ * @date 2019/5/22 15:42
+ * @ClassName UploadFileController
+ */
+@Controller
+@RequestMapping("/upload")
+public class UploadFileController {
+
+    /**
+     * @param chunks 当前所传文件的分片总数
+     * @param chunk  当前所传文件的当前分片数
+     * @return
+     * @Description: 大文件上传前分片检查
+     * @author: 13
+     */
+    @ResponseBody
+    @RequestMapping(value = "/checkChunk")
+    public Result checkChunk(HttpServletRequest request, String guid, Integer chunks, Integer chunk, String fileName){
+        try{
+            String uploadDir = FileUtil.getRealPath(request);
+            String ext = fileName.substring(fileName.lastIndexOf("."));
+            if(chunks != null && chunk != null){
+                //文件路径
+                StringBuilder tempFileName = new StringBuilder();
+                tempFileName.append(uploadDir).append(File.separator).append("temp").append(File.separator).append(guid).append(File.separator).append(chunk).append(ext);
+                File tempFile = new File(tempFileName.toString());
+                //是否已存在分片,如果已存在分片则返回SUCCESS结果
+                if (tempFile.exists()) {
+                    return ResultGenerator.genSuccessResult("分片已经存在！跳过此分片！");
+                }
+            }
+        }catch (Exception ex){
+            ex.printStackTrace();
+            return ResultGenerator.genFailResult("error");
+        }
+        return ResultGenerator.genNullResult("不存在分片");
+    }
+
+    @ResponseBody
+    @RequestMapping(value = "file")
+    public Result upload(HttpServletRequest request, String guid,Integer chunks, Integer chunk, String name,  MultipartFile file){
+        String filePath = null;
+         //上传存储路径
+        String uploadDir = FileUtil.getRealPath(request);
+        //后缀名
+        String ext = name.substring(name.lastIndexOf("."));
+        StringBuilder tempFileName = new StringBuilder();
+        //等价于 uploadDir + "\\temp\\" + guid + "\\" + chunk + ext
+        tempFileName.append(uploadDir).append(File.separator).append("temp").append(File.separator).append(guid).append(File.separator).append(chunk).append(ext);
+        File tempFile = new File(tempFileName.toString());
+        //判断文件是否分块
+        if(chunks != null && chunk != null){
+            //根据guid创建一个临时的文件夹
+            if(!tempFile.exists()){
+                tempFile.mkdirs();
+            }
+            try{
+                //保存每一个分片
+                file.transferTo(tempFile);
+            }catch(Exception e){
+                e.printStackTrace();
+            }
+            //如果当前是最后一个分片，则合并所有分片
+            if(chunk == (chunks - 1)){
+                StringBuilder tempFileFolder = new StringBuilder();
+                tempFileFolder.append(uploadDir).append(File.separator).append("temp").append(File.separator).append(guid).append(File.separator);
+                String newFileName = FileUtil.mergeFile(chunks, ext, tempFileFolder.toString(), request);
+                filePath = "upload/chunked/" + newFileName;
+            }
+        }else{
+            //不用分片的文件存储到files文件夹中
+            StringBuilder destPath = new StringBuilder();
+            destPath.append(uploadDir).append(File.separator).append("files").append(File.separator);
+            String newName = System.currentTimeMillis() + ext; //文件新名称
+            try{
+                FileUtil.saveFile(destPath.toString(), newName, file);
+            }catch(IOException e){
+                e.printStackTrace();
+            }
+            filePath = "upload/files/" + newName;
+        }
+        Result result = ResultGenerator.genSuccessResult();
+        result.setData(filePath);
+        return result;
+    }
+}
